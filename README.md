@@ -15,3 +15,5 @@ The tutorial used to make this editor can be found here:
     https://viewsourcecode.org/snaptoken/kilo/
 
 This is a wonderful tutorial, and teaches how to make a CLI without the use of any libraries (not even curses).
+
+The project made use of the Coala code linter for fixing the look of the code. The linter can be found here at: https://github.com/coala/coala
