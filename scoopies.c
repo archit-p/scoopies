@@ -618,28 +618,181 @@ editorMoveCursor (int key)
 
     row = (E.cy >= E.numrows) ? NULL : &E.row[E.cy];
     int rowlen = row ? row->size : 0;
-    if(E.cx > rowlen) {
-        E.cx = rowlen;
-    }
+    if (E.cx > rowlen)
+      {
+          E.cx = rowlen;
+      }
 }
 
-void editorProcessKeypress() {
-    int c = editorReadKey();
+void
+editorProcessKeypress ()
+{
+    int c = editorReadKey ();
 
-    switch(c) {
-        case '\r':
-            editorInsertNewline();
-            break;
-        case CTRL_KEY('q'):
+    switch (c)
+      {
+      case '\r':
+          editorInsertNewline ();
+          break;
+      case CTRL_KEY ('q'):
+          {
+              if (E.dirty)
+                {
+                    exitPrompt
+                        ("WARNING! File has unsaved changes. Exit? (y/n) %s");
+                }
+              else
+                {
+                    write (STDOUT_FILENO, "\x1b[2J", 4);
+                    write (STDOUT_FILENO, "\x1b[H", 3);
+                    exit (0);
+                }
+              break;
+          }
+      case CTRL_KEY ('s'):
+          editorSave ();
+          break;
+
+      case HOME_KEY:
+          E.cx = 0;
+          break;
+      case END_KEY:
+          if (E.cy < E.numrows)
+              E.cx = E.row[E.cy].size;
+          break;
+      case BACKSPACE:
+      case CTRL_KEY ('h'):
+      case DEL_KEY:
+          if (c == DEL_KEY)
+              editorMoveCursor (ARROW_RIGHT);
+          editorDelChar ();
+          break;
+      case PAGE_UP:
+      case PAGE_DOWN:
+          {
+              if (c == PAGE_UP)
+                {
+                    E.cy = E.rowoff;
+                }
+              else if (c == PAGE_DOWN)
+                {
+                    E.cy = E.rowoff + E.screenrows - 1;
+                    if (E.cy > E.numrows)
+                        E.cy = E.numrows;
+                }
+              int times = E.screenrows;
+              while (times--)
+                  editorMoveCursor (c == PAGE_UP ? ARROW_UP : ARROW_DOWN);
+          }
+          break;
+      case ARROW_UP:
+      case ARROW_DOWN:
+      case ARROW_LEFT:
+      case ARROW_RIGHT:
+          editorMoveCursor (c);
+          break;
+      case CTRL_KEY ('l'):
+      case '\x1b':
+          break;
+      default:
+          editorInsertChar (c);
+          break;
+      }
+}
+
+/*** output ***/
+
+void
+editorScroll ()
+{
+    if (E.cy < E.rowoff)
+      {
+          E.rowoff = E.cy;
+      }
+
+    if (E.cy >= E.rowoff + E.screenrows)
+      {
+          E.rowoff = E.cy - E.screenrows + 1;
+      }
+
+    if (E.cx < E.coloff)
+      {
+          E.coloff = E.cx;
+      }
+
+    if (E.cx >= E.coloff + E.screencols)
+      {
+          E.coloff = E.cx - E.screencols + 1;
+      }
+}
+
+void
+editorDrawRows (struct abuf *ab)
+{
+    int y;
+    for (y = 0; y < E.screenrows; y++)
+      {
+          int filerow = y + E.rowoff;
+          if (filerow >= E.numrows)
             {
-                if(E.dirty) {
-                    exitPrompt("WARNING! File has unsaved changes. Exit? (y/n) %s");
-                }
-                else {
-                    write(STDOUT_FILENO, "\x1b[2J", 4);
-                    write(STDOUT_FILENO, "\x1b[H", 3);
-                    exit(0);
-                }
+                if (E.numrows == 0 && y == E.screenrows / 3)
+                  {
+                      char welcome[80];
+                      int welcomelen =
+                          snprintf (welcome, sizeof (welcome),
+                                    "Scoopies Editor -- version %s",
+                                    SCOOPIES_VERSION);
+                      if (welcomelen > E.screencols)
+                          welcomelen = E.screencols;
+                      int padding = (E.screencols - welcomelen) / 2;
+                      if (padding)
+                        {
+                            abAppend (ab, "~", 1);
+                            padding--;
+                        }
+                      while (padding--)
+                          abAppend (ab, " ", 1);
+                      abAppend (ab, welcome, welcomelen);
+                  }
+                else
+                  {
+                      abAppend (ab, "~", 1);
+                  }
+            }
+          else
+            {
+                int len = E.row[filerow].rsize - E.coloff;
+                if (len < 0)
+                    len = 0;
+                if (len > E.screencols)
+                    len = E.screencols;
+                abAppend (ab, &E.row[filerow].render[E.coloff], len);
+            }
+
+          abAppend (ab, "\x1b[K", 3);
+          abAppend (ab, "\r\n", 2);
+      }
+}
+
+void
+editorDrawStatusBar (struct abuf *ab)
+{
+    abAppend (ab, "\x1b[7m", 4);
+    char status[80], rstatus[80];
+    int len =
+        snprintf (status, sizeof (status), "%.20s - %d lines %s",
+                  E.filename ? E.filename : "[No name]", E.numrows,
+                  E.dirty ? "(modified)" : "");
+    int rlen =
+        snprintf (rstatus, sizeof (rstatus), "%d/%d", E.cy + 1, E.numrows);
+    if (len > E.screencols)
+        len = E.screencols;
+    abAppend (ab, status, len);
+    while (len < E.screencols)
+      {
+          if (E.screencols - len == rlen)
+            {
+                abAppend (ab, rstatus, rlen);
                 break;
             }
           else
